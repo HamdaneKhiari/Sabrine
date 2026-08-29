@@ -1,0 +1,24 @@
+# Environnements Python
+sabrine-env/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Checkpoints de modèle (trop volumineux pour Git — à stocker ailleurs si besoin de les partager)
+**/model/checkpoints/*.pt
+
+# Tokenizer entraîné (régénérable via tokenizer/train_tokenizer.py — à garder seulement si tu veux figer une version)
+# **/tokenizer/sabrina_tokenizer.json
+# **/tokenizer/sabrina_tokenizer-merges.txt
+# **/tokenizer/sabrina_tokenizer-vocab.json
+
+# Logs d'entraînement
+**/training/logs/*.csv
+
+# Corpus de données (souvent trop volumineux, ou avec des questions de licence)
+**/data/raw/*
+!**/data/raw/.gitkeep
+
+# Divers
+.DS_Store
+*.log
