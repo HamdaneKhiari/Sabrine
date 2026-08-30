@@ -38,6 +38,11 @@ def estimate_loss(model, dataset, eval_iters, batch_size, device):
 def main():
     torch.manual_seed(config.seed)
 
+    # Bascule automatiquement sur GPU si disponible (Colab, machine avec CUDA...),
+    # reste sur CPU sinon — pas besoin d'éditer la config à la main selon la machine.
+    config.device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[Sabrina: Codex] Device utilisé : {config.device}")
+
     print("[Sabrina: Codex] Chargement des données...")
     dataset = CodeDataset(
         data_dir="data/processed",

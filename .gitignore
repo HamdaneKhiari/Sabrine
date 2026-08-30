@@ -19,6 +19,10 @@ sabrine-env/
 **/data/raw/*
 !**/data/raw/.gitkeep
 
+# Corpus traité par la Data Factory (généré, régénérable via data_factory/run_pipeline.py)
+**/data/processed/*
+!**/data/processed/.gitkeep
+
 # Divers
 .DS_Store
-*.log**/data/processed/*
+*.log
