@@ -15,7 +15,7 @@ import glob
 from tokenizers import ByteLevelBPETokenizer
 
 # --- Configuration ---
-DATA_DIR = "data/raw"
+DATA_DIR = "data/processed"
 OUTPUT_DIR = "tokenizer"
 VOCAB_SIZE = 32000
 MIN_FREQUENCY = 2

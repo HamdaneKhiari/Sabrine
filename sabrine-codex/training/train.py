@@ -40,7 +40,7 @@ def main():
 
     print("[Sabrina: Codex] Chargement des données...")
     dataset = CodeDataset(
-        data_dir="data/raw",
+        data_dir="data/processed",
         tokenizer_path="tokenizer/sabrina_tokenizer.json",
         block_size=config.block_size,
     )
