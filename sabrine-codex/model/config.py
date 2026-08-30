@@ -25,7 +25,7 @@ class SabrinaConfig:
     # --- Entraînement ---
     batch_size: int = 8
     learning_rate: float = 3e-4
-    max_iters: int = 2000
+    max_iters: int = 30000
     eval_interval: int = 200
     eval_iters: int = 50
     weight_decay: float = 0.01
