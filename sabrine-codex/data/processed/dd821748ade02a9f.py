@@ -1,2 +1,0 @@
-from .predict_binary_class import predict_binary_class
-from .predict_multi_class import predict_multi_class

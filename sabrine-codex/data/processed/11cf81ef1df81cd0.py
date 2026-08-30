@@ -1,8 +1,0 @@
-a = input('Digite algo: ')
-print(type(a))
-print(a.isnumeric())
-print(a.capitalize())
-print(a.isalnum())
-print(a.isdecimal())
-print(a.islower())
-print(a.upper())

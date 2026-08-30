@@ -21,4 +21,4 @@ sabrine-env/
 
 # Divers
 .DS_Store
-*.log
+*.log**/data/processed/*
