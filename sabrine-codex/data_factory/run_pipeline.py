@@ -36,9 +36,9 @@ def main():
         dataset_id="bigcode/the-stack",
         data_dir="data/python",
         content_field="content",
-        license_field="licenses",
+        license_field="max_stars_repo_licenses",
         language="python",
-        max_total_bytes=80_000_000,
+        max_total_bytes=650_000_000,
     )
 
     pipeline = Pipeline(
