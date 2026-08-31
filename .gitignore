@@ -23,6 +23,10 @@ sabrine-env/
 **/data/processed/*
 !**/data/processed/.gitkeep
 
+# Manifest de traçabilité (généré à chaque run — ne doit pas polluer un run
+# futur sur une autre machine avec des hash d'un run précédent différent)
+**/data/manifest.jsonl
+
 # Divers
 .DS_Store
 *.log

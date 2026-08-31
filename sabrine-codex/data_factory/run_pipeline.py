@@ -32,13 +32,13 @@ def main():
     manifest = Manifest(path="data/manifest.jsonl")
 
     source = HuggingFaceSource(
-        name="the_stack_smol_python",
-        dataset_id="bigcode/the-stack-smol",
+        name="the_stack_python",
+        dataset_id="bigcode/the-stack",
         data_dir="data/python",
         content_field="content",
         license_field="licenses",
         language="python",
-        max_total_bytes=650_000_000,
+        max_total_bytes=80_000_000,
     )
 
     pipeline = Pipeline(
