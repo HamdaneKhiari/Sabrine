@@ -94,7 +94,10 @@ class HuggingFaceSource(DataSource):
                 # rejette-la comme licence vide serait trop strict, mais
                 # LicenseFilter refusera quand même si elle n'est pas permissive.
                 if isinstance(raw_license, (list, tuple)):
-                    license_value = raw_license[0] if raw_license else self.default_license
+                    # Garde TOUTES les licences (jointes par "|"), pas seulement
+                    # la première — un fichier dual/multi-licencié doit voir
+                    # chacune de ses licences passer le filtre, pas juste une.
+                    license_value = "|".join(raw_license) if raw_license else self.default_license
                 else:
                     license_value = raw_license
 

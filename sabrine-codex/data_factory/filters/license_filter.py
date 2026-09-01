@@ -39,9 +39,18 @@ class LicenseFilter(Filter):
         if not sample.license:
             return FilterResult(passed=False, reason="licence absente ou vide")
 
-        normalized = self._normalize(sample.license)
+        # Un CodeSample peut porter PLUSIEURS licences (dépôt dual/multi-licencié),
+        # jointes par "|" en amont (voir HuggingFaceSource). On exige que TOUTES
+        # soient permissives — une seule licence copyleft dans la liste suffit à
+        # rejeter le fichier, par prudence juridique.
+        raw_licenses = sample.license.split("|")
 
-        if normalized not in self.allowed:
-            return FilterResult(passed=False, reason=f"licence non permissive: {sample.license!r}")
+        for raw in raw_licenses:
+            normalized = self._normalize(raw)
+            if normalized not in self.allowed:
+                return FilterResult(
+                    passed=False,
+                    reason=f"licence non permissive: {raw!r} (parmi {raw_licenses})",
+                )
 
         return FilterResult(passed=True)
