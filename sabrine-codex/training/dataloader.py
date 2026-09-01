@@ -2,6 +2,11 @@
 dataloader.py
 Prépare les données tokenizées pour l'entraînement : charge le corpus,
 le tokenize avec le tokenizer entraîné, et fournit des batchs aléatoires.
+
+Traite les fichiers un par un (lecture + tokenization immédiate) plutôt que
+de tout charger en une seule chaîne géante avant de tokenizer — évite un
+pic mémoire inutile sur de gros corpus, et affiche une progression pour
+qu'on voie clairement que ça avance sur un run long.
 """
 
 import os
@@ -10,8 +15,7 @@ import torch
 from tokenizers import Tokenizer
 
 
-def load_corpus_text(data_dir: str = "data/raw") -> str:
-    """Concatène tout le texte des fichiers de code trouvés dans data_dir."""
+def collect_files(data_dir: str) -> list:
     extensions = ["*.py", "*.js", "*.ts", "*.sh", "*.java", "*.cpp", "*.c", "*.go", "*.rs", "*.txt"]
     files = []
     for ext in extensions:
@@ -20,14 +24,7 @@ def load_corpus_text(data_dir: str = "data/raw") -> str:
     if not files:
         raise FileNotFoundError(f"Aucun fichier trouvé dans {data_dir}/")
 
-    texts = []
-    for f in files:
-        with open(f, "r", encoding="utf-8", errors="ignore") as fh:
-            texts.append(fh.read())
-
-    # On sépare chaque fichier par un marqueur pour éviter que le modèle
-    # n'apprenne des transitions artificielles entre deux fichiers différents
-    return "\n<|endofcode|>\n".join(texts)
+    return files
 
 
 def load_tokenizer(path: str = "tokenizer/sabrina_tokenizer.json") -> Tokenizer:
@@ -43,11 +40,31 @@ class CodeDataset:
     """Prépare un tenseur unique de tokens, et sait en tirer des batchs aléatoires."""
 
     def __init__(self, data_dir: str, tokenizer_path: str, block_size: int, val_split: float = 0.1):
-        text = load_corpus_text(data_dir)
+        files = collect_files(data_dir)
         tokenizer = load_tokenizer(tokenizer_path)
 
-        ids = tokenizer.encode(text).ids
-        data = torch.tensor(ids, dtype=torch.long)
+        # Token de séparateur entre fichiers, encodé une seule fois
+        separator_ids = tokenizer.encode("\n<|endofcode|>\n").ids
+
+        print(f"[Sabrina: Codex] Tokenization de {len(files)} fichiers...")
+
+        all_ids = []
+        report_every = max(len(files) // 20, 1)  # ~20 messages de progression au total
+
+        for i, f in enumerate(files):
+            try:
+                with open(f, "r", encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read()
+            except OSError:
+                continue
+
+            all_ids.extend(tokenizer.encode(content).ids)
+            all_ids.extend(separator_ids)
+
+            if (i + 1) % report_every == 0 or (i + 1) == len(files):
+                print(f"[Sabrina: Codex]   {i + 1}/{len(files)} fichiers tokenizés...")
+
+        data = torch.tensor(all_ids, dtype=torch.long)
 
         print(f"[Sabrina: Codex] Corpus tokenizé : {len(data)} tokens")
 
