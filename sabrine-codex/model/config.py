@@ -13,19 +13,20 @@ from dataclasses import dataclass
 @dataclass
 class SabrinaConfig:
     # --- Vocabulaire ---
-    vocab_size: int = 32000       # doit correspondre au tokenizer entraîné
+    vocab_size: int = 16000       # doit correspondre au tokenizer entraîné
 
-    # --- Architecture (volontairement petit pour un run CPU) ---
-    n_layer: int = 4              # nombre de blocs Transformer
-    n_head: int = 4               # nombre de têtes d'attention
-    n_embd: int = 128             # dimension des embeddings (d_model)
-    block_size: int = 256         # taille max du contexte (en tokens)
+    # --- Architecture (rééquilibrée : moins de vocab, plus de profondeur Transformer,
+    # avec weight tying — objectif ~15M avec ~34% seulement en embedding, contre 91% avant) ---
+    n_layer: int = 8              # nombre de blocs Transformer
+    n_head: int = 8               # nombre de têtes d'attention
+    n_embd: int = 320             # dimension des embeddings (d_model)
+    block_size: int = 256         # taille max du contexte (en tokens) — inchangé pour comparaison isolée
     dropout: float = 0.1
 
     # --- Entraînement ---
     batch_size: int = 8
     learning_rate: float = 3e-4
-    max_iters: int = 30000
+    max_iters: int = 2000
     eval_interval: int = 200
     eval_iters: int = 50
     weight_decay: float = 0.01

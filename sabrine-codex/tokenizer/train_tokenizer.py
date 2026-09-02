@@ -17,7 +17,7 @@ from tokenizers import ByteLevelBPETokenizer
 # --- Configuration ---
 DATA_DIR = "data/processed"
 OUTPUT_DIR = "tokenizer"
-VOCAB_SIZE = 32000
+VOCAB_SIZE = 16000
 MIN_FREQUENCY = 2
 
 # Tokens spéciaux utiles pour un modèle de code

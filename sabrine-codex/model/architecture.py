@@ -106,6 +106,12 @@ class SabrinaCodex(nn.Module):
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
+        # Weight tying : la tête de sortie partage la même matrice que l'embedding
+        # d'entrée (pratique standard GPT-2/nanoGPT). Économise vocab_size × n_embd
+        # paramètres — dans notre cas, ~4,1M sur 9,02M au total — sans perte de
+        # qualité connue, et libère ce budget pour les vraies couches Transformer.
+        self.head.weight = self.token_emb.weight
+
         self.apply(self._init_weights)
 
         n_params = sum(p.numel() for p in self.parameters())
