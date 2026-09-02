@@ -3,15 +3,17 @@ train.py
 Boucle d'entraînement pour Sabrina: Codex.
 
 Usage :
-    python training/train.py
+    python -m training.train
+    python -m training.train --resume model/checkpoints/sabrina_codex_final.pt --target_iters 88000
 
 Prérequis :
     - Un tokenizer déjà entraîné (tokenizer/sabrina_tokenizer.json)
-    - Du corpus dans data/raw/
+    - Du corpus dans data/processed/
 """
 
 import os
 import time
+import argparse
 import torch
 
 from model.config import config
@@ -36,6 +38,17 @@ def estimate_loss(model, dataset, eval_iters, batch_size, device):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--resume", type=str, default=None,
+        help="Chemin d'un checkpoint depuis lequel reprendre l'entraînement (modèle + optimizer + itération)."
+    )
+    parser.add_argument(
+        "--target_iters", type=int, default=None,
+        help="Itération totale à atteindre (utile surtout avec --resume). Sans --resume, config.max_iters est utilisé."
+    )
+    args = parser.parse_args()
+
     torch.manual_seed(config.seed)
 
     # Bascule automatiquement sur GPU si disponible (Colab, machine avec CUDA...),
@@ -59,18 +72,51 @@ def main():
         weight_decay=config.weight_decay,
     )
 
+    start_iter = 0
+
+    if args.resume:
+        print(f"[Sabrina: Codex] Reprise depuis le checkpoint : {args.resume}")
+        checkpoint = torch.load(args.resume, map_location=config.device, weights_only=False)
+        model.load_state_dict(checkpoint["model_state"])
+
+        if "optimizer_state" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state"])
+            print("[Sabrina: Codex] État de l'optimizer restauré (momentum Adam préservé).")
+        else:
+            print(
+                "[Sabrina: Codex] Attention : ce checkpoint n'a pas d'état d'optimizer sauvegardé "
+                "(ancien format) — l'optimizer redémarre à zéro, un léger à-coup sur la loss est possible "
+                "dans les toutes premières itérations après la reprise."
+            )
+
+        start_iter = checkpoint["iter"]
+        print(f"[Sabrina: Codex] Reprise à partir de l'itération {start_iter}")
+
+    max_iters = args.target_iters if args.target_iters is not None else config.max_iters
+
+    if start_iter >= max_iters:
+        raise ValueError(
+            f"target_iters ({max_iters}) doit être supérieur à l'itération de reprise ({start_iter})."
+        )
+
     os.makedirs("model/checkpoints", exist_ok=True)
     os.makedirs("training/logs", exist_ok=True)
     log_path = "training/logs/train_log.csv"
-    with open(log_path, "w") as f:
-        f.write("iter,train_loss,val_loss,elapsed_s\n")
+
+    # En reprise, on continue le même fichier de log plutôt que de l'écraser
+    if not args.resume or not os.path.exists(log_path):
+        with open(log_path, "w") as f:
+            f.write("iter,train_loss,val_loss,elapsed_s\n")
 
     start_time = time.time()
 
-    print(f"[Sabrina: Codex] Début de l'entraînement — {config.max_iters} itérations sur {config.device}")
+    print(
+        f"[Sabrina: Codex] Entraînement de l'itération {start_iter} à {max_iters} "
+        f"sur {config.device}"
+    )
 
-    for it in range(config.max_iters):
-        if it % config.eval_interval == 0 or it == config.max_iters - 1:
+    for it in range(start_iter, max_iters):
+        if it % config.eval_interval == 0 or it == max_iters - 1:
             losses = estimate_loss(model, dataset, config.eval_iters, config.batch_size, config.device)
             elapsed = time.time() - start_time
             print(
@@ -80,9 +126,14 @@ def main():
             with open(log_path, "a") as f:
                 f.write(f"{it},{losses['train']:.4f},{losses['val']:.4f},{elapsed:.1f}\n")
 
-            # Sauvegarde un checkpoint à chaque évaluation
+            # Sauvegarde un checkpoint à chaque évaluation (modèle + optimizer, pour permettre une reprise propre)
             torch.save(
-                {"model_state": model.state_dict(), "config": config, "iter": it},
+                {
+                    "model_state": model.state_dict(),
+                    "optimizer_state": optimizer.state_dict(),
+                    "config": config,
+                    "iter": it,
+                },
                 f"model/checkpoints/sabrina_codex_iter{it}.pt",
             )
 
@@ -96,7 +147,12 @@ def main():
 
     # Sauvegarde finale
     torch.save(
-        {"model_state": model.state_dict(), "config": config, "iter": config.max_iters},
+        {
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+            "config": config,
+            "iter": max_iters,
+        },
         "model/checkpoints/sabrina_codex_final.pt",
     )
     print("[Sabrina: Codex] Entraînement terminé. Checkpoint final sauvegardé.")
