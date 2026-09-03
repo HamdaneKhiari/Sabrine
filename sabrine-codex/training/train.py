@@ -37,6 +37,26 @@ def estimate_loss(model, dataset, eval_iters, batch_size, device):
     return results
 
 
+def get_lr(it: int, warmup_iters: int, max_iters: int, learning_rate: float, min_lr: float) -> float:
+    """Warmup linéaire puis décroissance cosinus jusqu'à min_lr.
+
+    Un LR fixe pendant tout l'entraînement tend à donner une loss qui oscille
+    au lieu de descendre proprement (surtout en fin de run, quand le LR
+    devrait diminuer pour affiner) — le warmup évite aussi une instabilité
+    dans les toutes premières itérations où les gradients sont bruités.
+    """
+    if it < warmup_iters:
+        return learning_rate * (it + 1) / warmup_iters
+
+    if it >= max_iters:
+        return min_lr
+
+    decay_ratio = (it - warmup_iters) / max(max_iters - warmup_iters, 1)
+    decay_ratio = min(max(decay_ratio, 0.0), 1.0)
+    coeff = 0.5 * (1.0 + torch.cos(torch.tensor(decay_ratio * 3.141592653589793)).item())
+    return min_lr + coeff * (learning_rate - min_lr)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -119,9 +139,10 @@ def main():
         if it % config.eval_interval == 0 or it == max_iters - 1:
             losses = estimate_loss(model, dataset, config.eval_iters, config.batch_size, config.device)
             elapsed = time.time() - start_time
+            current_lr = get_lr(it, config.warmup_iters, max_iters, config.learning_rate, config.min_lr)
             print(
                 f"[iter {it:5d}] train loss {losses['train']:.4f} | "
-                f"val loss {losses['val']:.4f} | {elapsed:.1f}s"
+                f"val loss {losses['val']:.4f} | lr {current_lr:.2e} | {elapsed:.1f}s"
             )
             with open(log_path, "a") as f:
                 f.write(f"{it},{losses['train']:.4f},{losses['val']:.4f},{elapsed:.1f}\n")
@@ -139,6 +160,10 @@ def main():
 
         x, y = dataset.get_batch("train", config.batch_size, config.device)
         logits, loss = model(x, targets=y)
+
+        lr = get_lr(it, config.warmup_iters, max_iters, config.learning_rate, config.min_lr)
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
 
         optimizer.zero_grad(set_to_none=True)
         loss.backward()

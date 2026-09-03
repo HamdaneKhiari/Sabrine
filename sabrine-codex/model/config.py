@@ -24,8 +24,12 @@ class SabrinaConfig:
     dropout: float = 0.1
 
     # --- Entraînement ---
-    batch_size: int = 8
-    learning_rate: float = 3e-4
+    batch_size: int = 64          # relevé de 8 : un batch plus large réduit le bruit du gradient
+                                   # et donne une courbe de loss plus stable (T4 encaisse largement
+                                   # cette taille pour un modèle de 15M)
+    learning_rate: float = 3e-4       # taux d'apprentissage maximal, atteint après le warmup
+    warmup_iters: int = 1000          # nombre d'itérations de warmup linéaire (LR croît de 0 à learning_rate)
+    min_lr: float = 3e-5              # taux d'apprentissage plancher en fin de decay (learning_rate / 10)
     max_iters: int = 2000
     eval_interval: int = 200
     eval_iters: int = 50

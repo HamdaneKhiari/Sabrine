@@ -149,12 +149,35 @@ class SabrinaCodex(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens: int, temperature: float = 1.0, top_k: int = None):
-        """Génère du texte token par token à partir d'un contexte de départ."""
+    def generate(
+        self,
+        idx,
+        max_new_tokens: int,
+        temperature: float = 1.0,
+        top_k: int = None,
+        eos_token_id: int = None,
+        repetition_penalty: float = 1.0,
+    ):
+        """Génère du texte token par token à partir d'un contexte de départ.
+
+        eos_token_id : si fourni, arrête la génération dès que ce token est produit
+            (au lieu de toujours générer max_new_tokens) — évite de continuer à
+            générer après un point d'arrêt naturel (ex: <|endofcode|>).
+        repetition_penalty : > 1.0 pénalise les tokens déjà présents dans la séquence
+            générée, pour réduire les boucles de répétition. 1.0 = désactivé.
+        """
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -self.config.block_size:]
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] / temperature
+
+            if repetition_penalty != 1.0:
+                for batch_idx in range(idx.shape[0]):
+                    for token_id in set(idx[batch_idx].tolist()):
+                        score = logits[batch_idx, token_id]
+                        logits[batch_idx, token_id] = (
+                            score / repetition_penalty if score > 0 else score * repetition_penalty
+                        )
 
             if top_k is not None:
                 v, _ = torch.topk(logits, top_k)
@@ -163,5 +186,8 @@ class SabrinaCodex(nn.Module):
             probs = F.softmax(logits, dim=-1)
             next_token = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, next_token), dim=1)
+
+            if eos_token_id is not None and idx.shape[0] == 1 and next_token.item() == eos_token_id:
+                break
 
         return idx

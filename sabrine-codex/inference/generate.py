@@ -37,6 +37,14 @@ def main():
     parser.add_argument("--max_tokens", type=int, default=80)
     parser.add_argument("--temperature", type=float, default=0.8)
     parser.add_argument("--top_k", type=int, default=40)
+    parser.add_argument(
+        "--repetition_penalty", type=float, default=1.2,
+        help="Pénalise les tokens déjà générés pour réduire les boucles de répétition. 1.0 = désactivé."
+    )
+    parser.add_argument(
+        "--no_eos_stop", action="store_true",
+        help="Désactive l'arrêt automatique sur le token <|endofcode|> (génère toujours max_tokens)."
+    )
     args = parser.parse_args()
 
     device = "cpu"
@@ -44,17 +52,23 @@ def main():
     model, config = load_model(args.checkpoint, device)
     tokenizer = Tokenizer.from_file(args.tokenizer)
 
+    eos_token_id = None
+    if not args.no_eos_stop:
+        eos_token_id = tokenizer.token_to_id("<|endofcode|>")
+
     prompt_ids = tokenizer.encode(args.prompt).ids
     idx = torch.tensor([prompt_ids], dtype=torch.long, device=device)
 
     print(f"\n--- Prompt ---\n{args.prompt}")
-    print(f"\n--- Génération ({args.max_tokens} tokens, temp={args.temperature}) ---\n")
+    print(f"\n--- Génération ({args.max_tokens} tokens, temp={args.temperature}, rep_penalty={args.repetition_penalty}) ---\n")
 
     output_idx = model.generate(
         idx,
         max_new_tokens=args.max_tokens,
         temperature=args.temperature,
         top_k=args.top_k,
+        eos_token_id=eos_token_id,
+        repetition_penalty=args.repetition_penalty,
     )
 
     generated_text = tokenizer.decode(output_idx[0].tolist())
