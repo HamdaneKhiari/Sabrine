@@ -24,9 +24,13 @@ class SabrinaConfig:
     dropout: float = 0.1
 
     # --- Entraînement ---
-    batch_size: int = 64          # relevé de 8 : un batch plus large réduit le bruit du gradient
-                                   # et donne une courbe de loss plus stable (T4 encaisse largement
-                                   # cette taille pour un modèle de 15M)
+    # OOM confirmé à batch_size=64 sur 319M (T4, 14,56 Go) : à peine ~46 Mo de trop au tout
+    # premier pas d'entraînement (les gradients + l'état AdamW s'allouent alors d'un coup,
+    # ~3,84 Go, en plus des activations du batch). On garde le même batch EFFECTIF (16×4=64,
+    # même stabilité de gradient que prévu) mais réparti en 4 micro-batchs accumulés avant
+    # chaque optimizer.step() — même résultat, ~4x moins de mémoire d'activations à la fois.
+    batch_size: int = 16
+    grad_accum_steps: int = 4
     learning_rate: float = 3e-4       # taux d'apprentissage maximal, atteint après le warmup
     warmup_iters: int = 1000          # nombre d'itérations de warmup linéaire (LR croît de 0 à learning_rate)
     min_lr: float = 3e-5              # taux d'apprentissage plancher en fin de decay (learning_rate / 10)

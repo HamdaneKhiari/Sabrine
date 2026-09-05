@@ -15,7 +15,7 @@ import os
 import time
 import argparse
 import torch
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 
 from model.config import config
 from model.architecture import SabrinaCodex
@@ -98,7 +98,7 @@ def main():
     # (à 15M ce n'était pas nécessaire, on n'a jamais eu besoin de le faire avant).
     # `enabled=False` sur CPU : autocast/scaler deviennent des no-op automatiquement.
     use_amp = config.device == "cuda"
-    scaler = GradScaler(enabled=use_amp)
+    scaler = GradScaler("cuda", enabled=use_amp)
 
     start_iter = 0
 
@@ -171,18 +171,26 @@ def main():
                 best_val_loss = losses["val"]
                 torch.save(checkpoint, "model/checkpoints/sabrina_codex_best.pt")
 
-        x, y = dataset.get_batch("train", config.batch_size, config.device)
+        # Accumulation de gradient : plusieurs micro-batchs enchaînés avant un seul
+        # optimizer.step(), pour obtenir le même batch effectif (batch_size × grad_accum_steps)
+        # qu'un vrai gros batch, sans jamais avoir plus d'un micro-batch d'activations en
+        # mémoire à la fois. `loss / grad_accum_steps` : la moyenne des micro-losses doit
+        # correspondre à ce qu'aurait donné un seul batch de la taille effective.
+        optimizer.zero_grad(set_to_none=True)
+        for _ in range(config.grad_accum_steps):
+            x, y = dataset.get_batch("train", config.batch_size, config.device)
 
-        with autocast(enabled=use_amp):
-            logits, loss = model(x, targets=y)
+            with autocast("cuda", enabled=use_amp):
+                logits, loss = model(x, targets=y)
+                loss = loss / config.grad_accum_steps
+
+            scaler.scale(loss).backward()
 
         lr = get_lr(it, config.warmup_iters, max_iters, config.learning_rate, config.min_lr)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
-        optimizer.zero_grad(set_to_none=True)
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)  # nécessaire avant clip_grad_norm_, sinon la norme est calculée sur les gradients mis à l'échelle
+        scaler.unscale_(optimizer)  # requis avant clip_grad_norm_, sinon la norme est calculée sur les gradients mis à l'échelle
         torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
         scaler.step(optimizer)
         scaler.update()
