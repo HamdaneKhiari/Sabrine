@@ -17,9 +17,9 @@ class SabrinaConfig:
 
     # --- Architecture (rééquilibrée : moins de vocab, plus de profondeur Transformer,
     # avec weight tying — objectif ~15M avec ~34% seulement en embedding, contre 91% avant) ---
-    n_layer: int = 8              # nombre de blocs Transformer
-    n_head: int = 8               # nombre de têtes d'attention
-    n_embd: int = 320             # dimension des embeddings (d_model)
+n_layer: int = 24
+n_head: int = 16
+n_embd: int = 1024
     block_size: int = 256         # taille max du contexte (en tokens) — inchangé pour comparaison isolée
     dropout: float = 0.1
 
