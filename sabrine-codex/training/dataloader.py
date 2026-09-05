@@ -6,11 +6,17 @@ le tokenize avec le tokenizer entraîné, et fournit des batchs aléatoires.
 Tokenize une seule fois et met en cache sur disque (data/cache/train.bin,
 data/cache/val.bin) au format memmap — les lancements suivants chargent le
 cache directement (quasi instantané) au lieu de retokenizer tous les
-fichiers en Python à chaque fois. Indispensable dès que le corpus dépasse
-quelques dizaines de milliers de fichiers (retokenizer à chaque run devient
-invivable en temps, et charger le résultat entier en RAM ne passera plus à
-l'échelle sur un corpus de plusieurs milliards de tokens — le memmap laisse
-l'OS ne paginer que ce qui est réellement lu).
+fichiers en Python à chaque fois.
+
+La tokenisation se fait par paquets de fichiers (CHUNK_FILES), écrits sur
+disque au fur et à mesure, plutôt que d'accumuler tout le corpus dans une
+seule liste Python avant d'écrire. Sur un gros corpus (des centaines de
+milliers de fichiers), garder tout en RAM sous forme de liste d'entiers
+Python peut représenter plusieurs dizaines de Go rien qu'en overhead
+d'objets — au-delà de la RAM d'une instance Colab standard, ça ne plante
+pas proprement, ça se met à swapper et ressemble à un blocage. Le
+streaming par paquets borne la mémoire utilisée, peu importe la taille
+du corpus.
 
 Si tu changes les données sources (nouvelle collecte, nouveau tokenizer),
 supprime le dossier data/cache/ pour forcer une retokenisation.
@@ -21,6 +27,8 @@ import glob
 import numpy as np
 import torch
 from tokenizers import Tokenizer
+
+CHUNK_FILES = 5000  # nombre de fichiers tokenizés avant chaque écriture sur disque
 
 
 def collect_files(data_dir: str) -> list:
@@ -44,6 +52,41 @@ def load_tokenizer(path: str = "tokenizer/sabrina_tokenizer.json") -> Tokenizer:
     return Tokenizer.from_file(path)
 
 
+def _tokenize_files_to_disk(files: list, tokenizer: Tokenizer, separator_ids: list,
+                             out_path: str, label: str) -> int:
+    """Tokenize une liste de fichiers par paquets de CHUNK_FILES, en ajoutant chaque
+    paquet directement au fichier binaire sur disque (mode append). Retourne le
+    nombre total de tokens écrits.
+    """
+    total_tokens = 0
+    report_every = max(len(files) // 20, 1)
+
+    with open(out_path, "wb") as out:
+        chunk_ids = []
+        for i, f in enumerate(files):
+            try:
+                with open(f, "r", encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read()
+            except OSError:
+                continue
+
+            chunk_ids.extend(tokenizer.encode(content).ids)
+            chunk_ids.extend(separator_ids)
+
+            # Paquet plein (ou dernier fichier) : on écrit et on vide la mémoire du paquet
+            if len(chunk_ids) >= 0 and ((i + 1) % CHUNK_FILES == 0 or (i + 1) == len(files)):
+                if chunk_ids:
+                    arr = np.array(chunk_ids, dtype=np.uint16)
+                    arr.tofile(out)
+                    total_tokens += len(arr)
+                    chunk_ids = []
+
+            if (i + 1) % report_every == 0 or (i + 1) == len(files):
+                print(f"[Sabrina: Codex]   [{label}] {i + 1}/{len(files)} fichiers tokenizés...")
+
+    return total_tokens
+
+
 class CodeDataset:
     """Prépare un cache de tokens sur disque (memmap), et sait en tirer des batchs aléatoires."""
 
@@ -62,35 +105,24 @@ class CodeDataset:
             # Token de séparateur entre fichiers, encodé une seule fois
             separator_ids = tokenizer.encode("\n<|endofcode|>\n").ids
 
+            # Split au niveau fichier (pas au niveau token) : permet d'écrire train et val
+            # dans deux fichiers séparés au fur et à mesure, sans connaître le nombre total
+            # de tokens à l'avance. L'ordre des fichiers vient d'un dataset déjà mélangé,
+            # donc un split par index de fichier est équivalent à un split par position de
+            # token pour nos besoins (pas de dépendance à l'ordre entre fichiers).
+            split_idx = int(len(files) * (1 - val_split))
+            train_files, val_files = files[:split_idx], files[split_idx:]
+
             print(
                 f"[Sabrina: Codex] Aucun cache trouvé — tokenization de {len(files)} fichiers "
-                f"(une seule fois ; les prochains lancements réutiliseront {cache_dir}/)..."
+                f"par paquets de {CHUNK_FILES} (une seule fois ; les prochains lancements "
+                f"réutiliseront {cache_dir}/)..."
             )
 
-            all_ids = []
-            report_every = max(len(files) // 20, 1)  # ~20 messages de progression au total
+            n_train = _tokenize_files_to_disk(train_files, tokenizer, separator_ids, train_cache, "train")
+            n_val = _tokenize_files_to_disk(val_files, tokenizer, separator_ids, val_cache, "val")
 
-            for i, f in enumerate(files):
-                try:
-                    with open(f, "r", encoding="utf-8", errors="ignore") as fh:
-                        content = fh.read()
-                except OSError:
-                    continue
-
-                all_ids.extend(tokenizer.encode(content).ids)
-                all_ids.extend(separator_ids)
-
-                if (i + 1) % report_every == 0 or (i + 1) == len(files):
-                    print(f"[Sabrina: Codex]   {i + 1}/{len(files)} fichiers tokenizés...")
-
-            # uint16 : vocab_size=16000 tient largement sur 16 bits (max 65535) — divise
-            # par 4 la place sur disque/RAM comparé à un tensor int64 par défaut.
-            data = np.array(all_ids, dtype=np.uint16)
-            print(f"[Sabrina: Codex] Corpus tokenizé : {len(data)} tokens")
-
-            split_idx = int(len(data) * (1 - val_split))
-            data[:split_idx].tofile(train_cache)
-            data[split_idx:].tofile(val_cache)
+            print(f"[Sabrina: Codex] Corpus tokenizé : {n_train + n_val} tokens (train={n_train}, val={n_val})")
             print(f"[Sabrina: Codex] Cache écrit dans {cache_dir}/ (train.bin, val.bin).")
 
         # memmap dans les deux cas (cache déjà présent ou tout juste écrit) : l'OS ne
