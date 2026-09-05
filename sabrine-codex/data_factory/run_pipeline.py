@@ -38,7 +38,7 @@ def main():
         content_field="content",
         license_field="max_stars_repo_licenses",
         language="python",
-        max_total_bytes=650_000_000,
+        max_total_bytes=2_000_000_000,
     )
 
     pipeline = Pipeline(
