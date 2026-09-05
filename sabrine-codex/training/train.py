@@ -15,6 +15,7 @@ import os
 import time
 import argparse
 import torch
+from torch.cuda.amp import autocast, GradScaler
 
 from model.config import config
 from model.architecture import SabrinaCodex
@@ -92,6 +93,13 @@ def main():
         weight_decay=config.weight_decay,
     )
 
+    # Mixed precision : poids fp32 gardés en maître, mais forward/backward en fp16
+    # sur GPU — divise à peu près par 2 la mémoire des activations, essentiel à 319M
+    # (à 15M ce n'était pas nécessaire, on n'a jamais eu besoin de le faire avant).
+    # `enabled=False` sur CPU : autocast/scaler deviennent des no-op automatiquement.
+    use_amp = config.device == "cuda"
+    scaler = GradScaler(enabled=use_amp)
+
     start_iter = 0
 
     if args.resume:
@@ -129,6 +137,7 @@ def main():
             f.write("iter,train_loss,val_loss,elapsed_s\n")
 
     start_time = time.time()
+    best_val_loss = float("inf")
 
     print(
         f"[Sabrina: Codex] Entraînement de l'itération {start_iter} à {max_iters} "
@@ -147,28 +156,36 @@ def main():
             with open(log_path, "a") as f:
                 f.write(f"{it},{losses['train']:.4f},{losses['val']:.4f},{elapsed:.1f}\n")
 
-            # Sauvegarde un checkpoint à chaque évaluation (modèle + optimizer, pour permettre une reprise propre)
-            torch.save(
-                {
-                    "model_state": model.state_dict(),
-                    "optimizer_state": optimizer.state_dict(),
-                    "config": config,
-                    "iter": it,
-                },
-                f"model/checkpoints/sabrina_codex_iter{it}.pt",
-            )
+            # Un seul checkpoint "latest", écrasé à chaque éval : à 15M un fichier par
+            # itération tenait sur le disque (~240 Mo), à 319M chacun pèse plusieurs Go
+            # et saturait Colab en quelques évals. On garde aussi "best" séparément,
+            # uniquement quand la val loss s'améliore vraiment.
+            checkpoint = {
+                "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "config": config,
+                "iter": it,
+            }
+            torch.save(checkpoint, "model/checkpoints/sabrina_codex_latest.pt")
+            if losses["val"] < best_val_loss:
+                best_val_loss = losses["val"]
+                torch.save(checkpoint, "model/checkpoints/sabrina_codex_best.pt")
 
         x, y = dataset.get_batch("train", config.batch_size, config.device)
-        logits, loss = model(x, targets=y)
+
+        with autocast(enabled=use_amp):
+            logits, loss = model(x, targets=y)
 
         lr = get_lr(it, config.warmup_iters, max_iters, config.learning_rate, config.min_lr)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)  # nécessaire avant clip_grad_norm_, sinon la norme est calculée sur les gradients mis à l'échelle
         torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
     # Sauvegarde finale
     torch.save(
